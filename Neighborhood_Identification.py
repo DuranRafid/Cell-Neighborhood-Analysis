@@ -3,9 +3,10 @@ import numpy as np
 import seaborn as sns
 
 from sklearn.cluster import MiniBatchKMeans
+from sklearn.cluster import DBSCAN
 from scipy.spatial import cKDTree
 from sklearn.neighbors import NearestNeighbors
-
+import matplotlib.pyplot as plt
 
 class CellNeighborhood(object):
     def __init__(self,path_to_data,Xpos,YPos,ROI,CellType):
@@ -23,7 +24,7 @@ class CellNeighborhood(object):
         self.method = ''
         self.neighbor_nums = 0
         self.neighborhood_name= '' # This is used to track whether neighborhoods are constructed or not
-        self.name = self.path_to_data.split('\\')[-1].split('.')[0]
+        self.name = self.path_to_data.split('.')[0]
         
     def set_method(self,method):
         assert (method=='Windowcutoff' or method =='Distancecutoff')
@@ -32,10 +33,8 @@ class CellNeighborhood(object):
     def set_method_param(self,param=50):
         if self.method=='':
             raise ValueError("Method must be set before")
-        if self.method=='Windowcutoff':
-            self.method_param= param
-        else:
-            self.method_param = param
+        self.method_param = param
+        self.save_path = 'Distance' + str(self.method_param)+'\\'
 
     def set_num_of_neighborhoods(self,NeighborhoodNo):
         self.neighbor_nums = NeighborhoodNo
@@ -104,13 +103,15 @@ class CellNeighborhood(object):
         allwindow = pd.concat([df[self.keep_cols],allwindow],axis=1)
 
         # Now Perform the clustering
-        km = MiniBatchKMeans(n_clusters = self.neighbor_nums,random_state=0)
+        km = MiniBatchKMeans(n_clusters = self.neighbor_nums,random_state=0) # DBSCAN, KMedoid, Mean Shift
         labelskm = km.fit_predict(allwindow[self.sum_cols].values)
         self.k_centroids = km.cluster_centers_
+
         self.neighborhood_name = "Neighborhood"+str(self.neighbor_nums)
-        self.cells[self.neighborhood_name] = labelskm 
+        self.cells[self.neighborhood_name] = labelskm
         self.cells[self.neighborhood_name] = self.cells[self.neighborhood_name].astype('category')
-        
+
+
     def get_neighborhoods(self):
         if self.neighborhood_name=='':
             self.identifyNeighborhoods()
@@ -119,23 +120,29 @@ class CellNeighborhood(object):
     def save_clustermap(self):
         if self.neighborhood_name=='':
             self.identifyNeighborhoods()
-            
+        print(self.save_path)
         niche_clusters = self.k_centroids
         tissue_avgs = self.values.mean(axis = 0)
+        print(tissue_avgs)
+        print(niche_clusters)
         fc = np.log2(((niche_clusters+tissue_avgs)/(niche_clusters+tissue_avgs).sum(axis = 1, keepdims = True))/tissue_avgs)
         fc = pd.DataFrame(fc,columns = self.sum_cols)
+        fc.to_csv(self.save_path+self.name+str(self.method_param)+'ClusterMapDataframe.csv')
         s=sns.clustermap(fc.loc[[x for x in range(self.neighbor_nums)],list(self.sum_cols)], annot=True, cmap = 'bwr',row_cluster = False)
         s.savefig(self.save_path+self.name+'ClusterMap'+str(self.method_param)+self.neighborhood_name+'.png')
 
     def save_neighborhoods(self):
-        self.cells.to_csv(self.save_path+self.name+'Neighborhood'+str(self.neighbor_nums)+'.csv')
+        print(self.neighbor_nums)
+        print(self.save_path)
+        self.cells.to_csv(self.save_path+self.name+'Neighborhood'+str(self.method_param)+str(self.neighbor_nums)+'.csv',index=False)
 
 if __name__ == '__main__':
-    cn = CellNeighborhood('BCancerCombined.csv',Xpos='imagerow',YPos='imagecol',ROI='Sample Name',CellType='celltype')
+    cn = CellNeighborhood("IDC_and_ILC_BrCA_mIHC_Imaging_Inform_Final_Data_01_31_2021.csv",Xpos='Cell X Position',YPos='Cell Y Position',ROI='Sample Name',CellType='Phenotype')
    # cn.set_column_names(X_position='Cell X Position', Y_position='Cell Y Position', ROI='Sample Name', CellType='Phenotype')
     cn.set_method('Distancecutoff') # There are two methods, one is Windowcutoff, another is Distancecutoff
     cn.set_method_param(50) #Window Size for Window Method, Distance cut off for distance method
-    cn.set_num_of_neighborhoods(6) # Set the number of neighborhoods you want to get
+    cn.set_num_of_neighborhoods(7) # Set the number of neighborhoods you want to get
+    #cn.identifyNeighborhoods()
     cn.save_clustermap() #Saves the clustermap of celltype distribution across neighborhoods
     cn.save_neighborhoods()
 
