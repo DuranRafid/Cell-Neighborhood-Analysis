@@ -28,14 +28,24 @@ class NeighborNetwork(object):
         fig = sns_heat.get_figure()
         fig.savefig(str(p_group) + 'NeighberhoodContact_Final.png', dpi=200)
 
-    def save_network_figs(self):
+    def scale_mat(self, matrix, range_max=4, range_min = -4):
+        new_mat = matrix
+        xmin = matrix.min()
+        xmax = matrix.max()
+        convert_to_range = lambda x, xmin, xmax, range_max, range_min: (range_max - range_min) * (x - xmin) / (xmax - xmin) + range_min
+        for i in range(matrix.shape[0]):
+            for j in range(matrix.shape[1]):
+                new_mat[i][j] = convert_to_range(matrix[i][j], xmin, xmax, range_max, range_min)
+        return new_mat
+
+    def save_network_figs(self,scale=True):
         patient_Groups = self.cells[self.group].unique()
         for p_group in patient_Groups:
-            if p_group == 'IDC':
-                continue
             print(p_group)
             print(p_group, file=out_file)
             matrix = self.create_network(p_group)
+            if scale==True:
+                matrix = self.scale_mat(matrix)
             self._save_fig(matrix, p_group)
 
     def create_network(self, group_name):
