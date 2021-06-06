@@ -3,8 +3,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 from scipy.spatial import cKDTree
+import argparse
 
-out_file = open('network_output.txt','w')
+out_file = open('network_output.txt', 'w')
+
 
 class NeighborNetwork(object):
     def __init__(self, dataframe, ROI, X_pos, Y_pos, group, num_neighborhood):
@@ -21,7 +23,7 @@ class NeighborNetwork(object):
         print('Saving figure for {}'.format(p_group))
         mask_ut = np.triu(np.ones(matrix.shape), k=1).astype(np.bool)
         fig, _ = plt.subplots(dpi=120)
-        np.savetxt(str(p_group) + '_NeighberhoodContactMatrix.txt',np.log2(matrix))
+        np.savetxt(str(p_group) + '_NeighberhoodContactMatrix.txt', np.log2(matrix))
         sns_heat = sns.heatmap(np.log2(matrix), mask=mask_ut, annot=True, vmax=4, vmin=-4, cmap='coolwarm')
         fig = sns_heat.get_figure()
         fig.savefig(str(p_group) + 'NeighberhoodContact_Final.png', dpi=200)
@@ -29,13 +31,12 @@ class NeighborNetwork(object):
     def save_network_figs(self):
         patient_Groups = self.cells[self.group].unique()
         for p_group in patient_Groups:
-            if p_group=='IDC':
+            if p_group == 'IDC':
                 continue
             print(p_group)
-            print(p_group,file=out_file)
+            print(p_group, file=out_file)
             matrix = self.create_network(p_group)
             self._save_fig(matrix, p_group)
-
 
     def create_network(self, group_name):
         groupcells = self.cells[self.cells[self.group] == group_name]
@@ -57,8 +58,8 @@ class NeighborNetwork(object):
             log_of_odds_matrix = self.log_likelihood(mat)
             matrix += log_of_odds_matrix
             count += 1
-            print('ROI',count,file=out_file)
-            print(log_of_odds_matrix,file=out_file)
+            print('Group', count, file=out_file)
+            print(log_of_odds_matrix, file=out_file)
         return matrix
 
     def get_neighbors_distance(self, points, pointtype, distance):
@@ -95,8 +96,20 @@ class NeighborNetwork(object):
         return new_matrix
 
 if __name__ == '__main__':
-    df = pd.read_csv('IDC_and_ILC_BrCA_mIHC_Imaging_Inform_Final_Data_01_31_2021Neighborhood507.csv')
-    df['Patient Outcome Group'] = [x+' '+y for (x,y) in zip(df['Patient Group'],df['Outcome Group'])]
-    cells = df#df[df['Outcome Group']!='Fresh']
-    neighbor_network = NeighborNetwork(dataframe=cells, X_pos='Cell X Position', Y_pos='Cell Y Position', ROI='Patient', group='Patient Group', num_neighborhood=7)
+    parser = argparse.ArgumentParser('Train and Evaluate Harmony on your dataset')
+    parser.add_argument('-file', '--file-name', type=str, default='Neighborhood_saved_data.csv', help='The name of your csv file with filepath')
+    parser.add_argument('-p', '--patient-column', type=str, default='Patient Group',help='The column name in your csv file listing the patient groups')
+    parser.add_argument('-s', '--spot-column', type=str, default='ROI', help='The column name in your csv file listing the spot IDs/Names')
+    parser.add_argument('-x', '--x-pos', type=str, default='Cell X Position', help='The column name in your csv file listing the cell X coordinates')
+    parser.add_argument('-y', '--y-pos', type=str, default='Cell Y Position', help='The column name in your csv file listing the cell y coordinates')
+    parser.add_argument('-n', '--num-nei', type=int, default='7', help='The number of neighborhoods you want to construct')
+    args = parser.parse_args()
+    file_name = args.file_name
+    patient_col = args.patient_column
+    spot_col = args.spot_column
+    x_pos = args.x_pos
+    y_pos = args.y_pos
+    num_of_neighbors = args.num_nei
+    df = pd.read_csv(file_name)
+    neighbor_network = NeighborNetwork(dataframe=df, X_pos=x_pos, Y_pos=y_pos, ROI=spot_col, group=patient_col,num_neighborhood=num_of_neighbors)
     neighbor_network.save_network_figs()
