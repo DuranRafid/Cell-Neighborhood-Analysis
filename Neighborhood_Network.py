@@ -107,7 +107,7 @@ class NeighborNetwork(object):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Train and Evaluate Harmony on your dataset')
-    parser.add_argument('-file', '--file-name', type=str, default='Neighborhood_saved_data.csv', help='The name of your csv file with filepath')
+    parser.add_argument('-file', '--file-name', type=str, default='data_with_Neighborhood.csv', help='The name of your csv file with filepath')
     parser.add_argument('-p', '--patient-column', type=str, default='Patient Group',help='The column name in your csv file listing the patient groups')
     parser.add_argument('-s', '--spot-column', type=str, default='ROI', help='The column name in your csv file listing the spot IDs/Names')
     parser.add_argument('-x', '--x-pos', type=str, default='Cell X Position', help='The column name in your csv file listing the cell X coordinates')
