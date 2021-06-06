@@ -1,108 +1,167 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 import pandas as pd
-from scipy.spatial import cKDTree
+import numpy as np
+import seaborn as sns
 import argparse
+from sklearn.cluster import MiniBatchKMeans
+from sklearn.cluster import DBSCAN
+from scipy.spatial import cKDTree
+from sklearn.neighbors import NearestNeighbors
+import matplotlib.pyplot as plt
 
-out_file = open('network_output.txt', 'w')
 
+class CellNeighborhood(object):
+    def __init__(self, path_to_data, Xpos, YPos, ROI, CellType):
+        self.path_to_data = path_to_data
+        self.cells = pd.read_csv(path_to_data)
+        self._set_column_names(Xpos, YPos, ROI, CellType)
 
-class NeighborNetwork(object):
-    def __init__(self, dataframe, ROI, X_pos, Y_pos, group, num_neighborhood):
-        self.cells = dataframe
+    def _set_column_names(self, X_position, Y_position, ROI, CellType):
+        self.X_position = X_position
+        self.Y_position = Y_position
         self.ROI = ROI
-        self.X_pos = X_pos
-        self.Y_pos = Y_pos
-        self.group = group
-        self.num_neighboorhood = num_neighborhood
-        self.neighborhood_name = "Neighborhood" + str(self.num_neighboorhood)
-        print("Done initializing")
+        self.CellType = CellType
+        self.keep_cols = [X_position, Y_position, ROI, CellType]
+        self.save_path = ''
+        self.method = ''
+        self.neighbor_nums = 0
+        self.neighborhood_name = ''  # This is used to track whether neighborhoods are constructed or not
+        self.name = self.path_to_data.split('.')[0]
 
-    def _save_fig(self, matrix, p_group):
-        print('Saving figure for {}'.format(p_group))
-        mask_ut = np.triu(np.ones(matrix.shape), k=1).astype(np.bool)
-        fig, _ = plt.subplots(dpi=120)
-        np.savetxt(str(p_group) + '_NeighberhoodContactMatrix.txt', np.log2(matrix))
-        sns_heat = sns.heatmap(np.log2(matrix), mask=mask_ut, annot=True, vmax=4, vmin=-4, cmap='coolwarm')
-        fig = sns_heat.get_figure()
-        fig.savefig(str(p_group) + 'NeighberhoodContact_Final.png', dpi=200)
+    def set_method(self, method):
+        assert (method == 'Windowcutoff' or method == 'Distancecutoff')
+        self.method = method
 
-    def save_network_figs(self):
-        patient_Groups = self.cells[self.group].unique()
-        for p_group in patient_Groups:
-            if p_group == 'IDC':
-                continue
-            print(p_group)
-            print(p_group, file=out_file)
-            matrix = self.create_network(p_group)
-            self._save_fig(matrix, p_group)
+    def set_method_param(self, param=50):
+        if self.method == '':
+            raise ValueError("Method must be set before")
+        self.method_param = param
+        self.save_path = 'Distance' + str(self.method_param) + '\\'
 
-    def create_network(self, group_name):
-        groupcells = self.cells[self.cells[self.group] == group_name]
-        matrix = np.zeros((self.num_neighboorhood, self.num_neighboorhood))
-        count = 0
-        for group in groupcells.groupby(self.ROI):
-            Xlist = group[1][self.X_pos].tolist()
-            Ylist = group[1][self.Y_pos].tolist()
-            Neilist = group[1][self.neighborhood_name].tolist()
-            Types = [i for i in range(self.num_neighboorhood)]
+    def set_num_of_neighborhoods(self, NeighborhoodNo):
+        self.neighbor_nums = NeighborhoodNo
 
-            points = []
-            for x, y in zip(Xlist, Ylist):
-                points.append([x, y])
-            points = np.array(points)
-            neighbors = np.array(Neilist)
-            neighbor_cell = self.get_neighbors_distance(points, neighbors, 50)
-            mat = self.create_matrix(neighbor_cell, Types)
-            log_of_odds_matrix = self.log_likelihood(mat)
-            matrix += log_of_odds_matrix
-            count += 1
-            print('Group', count, file=out_file)
-            print(log_of_odds_matrix, file=out_file)
-        return matrix
+    def get_windows(self, job):
+        idx, tissue_name, indices = job
+        tissue = self.tissue_group.get_group(tissue_name)
+        to_fit = tissue.loc[indices][[self.X_position, self.Y_position]].values
+        fit = NearestNeighbors(n_neighbors=self.method_param).fit(tissue[[self.X_position, self.Y_position]].values)
+        m = fit.kneighbors(to_fit)
+        m = m[0], m[1]
 
-    def get_neighbors_distance(self, points, pointtype, distance):
-        point_tree = cKDTree(points)
-        # print(point_tree.count_neighbors(point_tree,200))
-        neighbor_cell = []
-        indices_set = point_tree.query_ball_point(points, distance).flatten()
-        for i in range(len(indices_set)):
-            neighborpoints = np.delete(pointtype[indices_set[i]], 0)
-            neighbor_cell.append((pointtype[i], neighborpoints))
-        return neighbor_cell
+        # sort_neighbors
+        args = m[0].argsort(axis=1)
+        add = np.arange(m[1].shape[0]) * m[1].shape[1]
+        sorted_indices = m[1].flatten()[args + add[:, None]]
+        neighbors = tissue.index.values[sorted_indices]
+        return neighbors.astype(np.int32)  # returns k neighbor indices for each cell in the sample
 
-    def create_matrix(self, neighbor_cell, Types):
-        matrix = np.zeros((len(Types), len(Types)))
-        for i in range(len(neighbor_cell)):
-            for j in range(len(neighbor_cell[i][1])):
-                matrix[Types.index(neighbor_cell[i][0])][Types.index(neighbor_cell[i][1][j])] += 0.5
-                matrix[Types.index(neighbor_cell[i][1][j])][Types.index(neighbor_cell[i][0])] += 0.5
-        for i in range(matrix.shape[0]):
-            matrix[i][i] = matrix[i][i] / 2
-        return matrix
+    def get_neighbors_distance(self, job):
+        idx, tissue_name, indices = job
+        tissue = self.tissue_group.get_group(tissue_name)
+        to_fit = tissue.loc[indices][[self.X_position, self.Y_position]].values
 
-    def log_likelihood(self, matrix):
-        new_matrix = np.zeros((matrix.shape[0], matrix.shape[1]))
-        msum = 0
-        for i in range(matrix.shape[0]):
-            for j in range(i, matrix.shape[1]):
-                msum += matrix[i][j]
-        hnormsum = matrix.sum(axis=0) / msum
+        point_tree = cKDTree(to_fit)
+        neighbors = []
+        indices_set = point_tree.query_ball_point(to_fit, self.method_param).flatten()
+        for indices in indices_set:
+            indexlist = [x for x in indices]
+            neighbors.append(tissue.index.values[indexlist])
+        return neighbors
+
+    def identifyNeighborhoods(self):
+        df = pd.concat([self.cells, pd.get_dummies(self.cells[self.CellType])], 1)  # converts cell types to indicators
+        self.sum_cols = df[self.CellType].unique()  # sum_cols in the unique phenotypes
+        self.values = df[self.sum_cols].values  # values in those indicator cell types
+
+        self.tissue_group = df[[self.X_position, self.Y_position, self.ROI]].groupby(self.ROI)
+        exps = list(df[self.ROI].unique())
+        tissue_chunks = [(exps.index(t), t, a) for t, indices in self.tissue_group.groups.items() for a in np.array_split(indices, 1)]
+
+        if self.method == 'Windowcutoff':
+            tissues = [self.get_windows(job) for job in tissue_chunks]
+        if self.method == 'Distancecutoff':
+            tissues = [self.get_neighbors_distance(job) for job in tissue_chunks]
+
+        out_dict = {}
+        for neighbors, job in zip(tissues, tissue_chunks):
+            chunk = np.arange(len(neighbors))  # indices
+            tissue_name = job[1]
+            indices = job[2]
+            if self.method == 'Windowcutoff':
+                window = self.values[neighbors[chunk].flatten()].reshape(len(chunk), self.method_param,len(self.sum_cols)).sum(axis=1)
+                out_dict[(tissue_name, self.method_param)] = (window.astype(np.float16), indices)
+
+            if self.method == 'Distancecutoff':
+                window = np.zeros((len(neighbors), len(self.sum_cols)))
+                for i in range(len(neighbors)):
+                    window[i] += self.values[neighbors[i]].sum(axis=0)
+                out_dict[(tissue_name, self.method_param)] = (window.astype(np.float16), indices)
+
+        win = [pd.DataFrame(out_dict[(exp, self.method_param)][0], index=out_dict[(exp, self.method_param)][1].astype(int),columns=self.sum_cols) for exp in exps]
+        allwindow = pd.concat(win, axis=0)  # all the groups concatenated
+        allwindow = allwindow.loc[df.index.values]
+        allwindow = pd.concat([df[self.keep_cols], allwindow], axis=1)
+
+        # Now Perform the clustering
+        km = MiniBatchKMeans(n_clusters=self.neighbor_nums, random_state=0)  # DBSCAN, KMedoid, Mean Shift
+        labelskm = km.fit_predict(allwindow[self.sum_cols].values)
+        self.k_centroids = km.cluster_centers_
+
+        self.neighborhood_name = "Neighborhood" + str(self.neighbor_nums)
+        self.cells[self.neighborhood_name] = labelskm
+        self.cells[self.neighborhood_name] = self.cells[self.neighborhood_name].astype('category')
+
+    def get_neighborhoods(self):
+        if self.neighborhood_name == '':
+            self.identifyNeighborhoods()
+        return self.cells[
+            self.neighborhood_name]  # returns a Pandas series containing neihborhood no for each cell type
+
+    def scale_mat(self, matrix, range_max=5, range_min = -5):
+        new_mat = matrix
+        xmin = matrix.min()
+        xmax = matrix.max()
+        convert_to_range = lambda x, xmin, xmax, range_max, range_min: (range_max - range_min) * (x - xmin) / (xmax - xmin) + range_min
         for i in range(matrix.shape[0]):
             for j in range(matrix.shape[1]):
-                new_matrix[i][j] = (matrix[i][j]) / (hnormsum[i] * hnormsum[j] * msum + np.nextafter(0, 1))
-        # return np.where(new_matrix!=0, np.log2(new_matrix+np.nextafter(0,1)), np.nextafter(0,1))
-        return new_matrix
+                new_mat[i][j] = convert_to_range(matrix[i][j], xmin, xmax, range_max, range_min)
+        return new_mat
+
+    def save_clustermap(self,scale=True):
+        if self.neighborhood_name == '':
+            self.identifyNeighborhoods()
+        print(self.save_path)
+        niche_clusters = self.k_centroids
+        tissue_avgs = self.values.mean(axis=0)
+        print(tissue_avgs)
+        print(niche_clusters)
+        fc = np.log2(
+            ((niche_clusters + tissue_avgs) / (niche_clusters + tissue_avgs).sum(axis=1, keepdims=True)) / tissue_avgs)
+        fc = pd.DataFrame(fc, columns=self.sum_cols)
+        fc.to_csv(self.save_path + self.name + str(self.method_param) + 'ClusterMapDataframe.csv')     
+        hT = fc.T
+        if scale==True:
+            matrix = hT.values
+            hT.iloc[:, :] = self.scale_mat(matrix)
+        s = sns.clustermap(hT.T,annot=True, cmap="bwr",row_cluster=False,col_cluster=False)
+        s.savefig(self.save_path + self.name + 'ClusterMap' + str(self.method_param) + self.neighborhood_name + '.png')
+
+    def save_neighborhoods(self):
+        print(self.neighbor_nums)
+        print(self.save_path)
+        self.cells.to_csv(self.save_path + self.name + 'Neighborhood' + str(self.method_param) + str(self.neighbor_nums) + '.csv',index=False)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Train and Evaluate Harmony on your dataset')
-    parser.add_argument('-file', '--file-name', type=str, default='Neighborhood_saved_data.csv', help='The name of your csv file with filepath')
-    parser.add_argument('-p', '--patient-column', type=str, default='Patient Group',help='The column name in your csv file listing the patient groups')
-    parser.add_argument('-s', '--spot-column', type=str, default='ROI', help='The column name in your csv file listing the spot IDs/Names')
+    parser.add_argument('-file', '--file-name', type=str, default='data.csv', help='The name of your csv file with filepath')
+    parser.add_argument('-s', '--spot-column', type=str, default='Sample Name', help='The column name in your csv file listing the spot IDs/Names')
     parser.add_argument('-x', '--x-pos', type=str, default='Cell X Position', help='The column name in your csv file listing the cell X coordinates')
-    parser.add_argument('-y', '--y-pos', type=str, default='Cell Y Position', help='The column name in your csv file listing the cell y coordinates')
-    parser.add_argument('-n', '--num-nei', type=int, default='7', help='The number of neighborhoods you want to construct')
+    parser.add_argument('-y', '--y-pos', type=str, default='Cell Y Position', help= 'The column name in your csv file listing the cell y coordinates')
+    parser.add_argument('-ph', '--type-column', type=str, default='Phenotype', help= 'The number of neighborhoods you want to construct')
+    parser.add_argument('-m', '--method', choices=['Distancecutoff','Windowcutoff'], type=str, default='Distancecutoff', help = 'The method you want to use to create neighborhoods (Distancecutoff/Windowcutoff)')
+    parser.add_argument('-mp', '--method-param', type=int, default=50, help='If you are using Distance Cut off, then input the distance, otherwise, input number of neighboring cells as input')
+    parser.add_argument('-n', '--num-nei', type=int, default='7', help='Number of Neighborhoods')
     args = parser.parse_args()
     file_name = args.file_name
     patient_col = args.patient_column
@@ -110,6 +169,12 @@ if __name__ == '__main__':
     x_pos = args.x_pos
     y_pos = args.y_pos
     num_of_neighbors = args.num_nei
-    df = pd.read_csv(file_name)
-    neighbor_network = NeighborNetwork(dataframe=df, X_pos=x_pos, Y_pos=y_pos, ROI=spot_col, group=patient_col,num_neighborhood=num_of_neighbors)
-    neighbor_network.save_network_figs()
+    type_col = args.type_column
+    method = args.method
+    method_param = args.method_param
+    cn = CellNeighborhood(file_name, Xpos=x_pos,YPos=y_pos, ROI=spot_col, CellType=type_col)
+    cn.set_method(method)  # There are two methods, one is Windowcutoff, another is Distancecutoff
+    cn.set_method_param(method_param)  # Window Size for Window Method, Distance cut off for distance method
+    cn.set_num_of_neighborhoods(num_of_neighbors)  # Set the number of neighborhoods you want to get
+    cn.save_clustermap()  # Saves the clustermap of celltype distribution across neighborhoods
+    cn.save_neighborhoods()
