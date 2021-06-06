@@ -149,7 +149,7 @@ class CellNeighborhood(object):
     def save_neighborhoods(self):
         print(self.neighbor_nums)
         print(self.save_path)
-        self.cells.to_csv(self.save_path + self.name + 'Neighborhood' + str(self.method_param) + str(self.neighbor_nums) + '.csv',index=False)
+        self.cells.to_csv(self.save_path + self.name + '_with_Neighborhood.csv',index=False)
 
     def set_group_plot_colums(self, patient, group):
         self.Group = group
