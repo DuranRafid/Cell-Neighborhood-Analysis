@@ -138,7 +138,7 @@ class CellNeighborhood(object):
         fc = np.log2(
             ((niche_clusters + tissue_avgs) / (niche_clusters + tissue_avgs).sum(axis=1, keepdims=True)) / tissue_avgs)
         fc = pd.DataFrame(fc, columns=self.sum_cols)
-        fc.to_csv(self.save_path + self.name + str(self.method_param) + 'ClusterMapDataframe.csv')     
+        fc.to_csv(self.save_path + self.name + str(self.method_param) + 'ClusterMapDataframe.csv')
         hT = fc.T
         if scale==True:
             matrix = hT.values
@@ -151,30 +151,73 @@ class CellNeighborhood(object):
         print(self.save_path)
         self.cells.to_csv(self.save_path + self.name + 'Neighborhood' + str(self.method_param) + str(self.neighbor_nums) + '.csv',index=False)
 
+    def set_group_plot_colums(self, patient, group):
+        self.Group = group
+        self.patient = patient
+
+    def get_Groupwise_Stripplot(self):
+        groupslist = self.cells[self.Group].unique()
+        if len(groupslist) > 2:
+            raise ValueError("More than 2 groups is not supported currently.")
+        if len(groupslist) < 2:
+            raise ValueError("At least 2 groups are required for group based analysis.")
+
+        fc = self.cells.groupby([self.Patient, self.Group]).apply(
+            lambda x: x[self.neighborhood_name].value_counts(sort=False, normalize=True))
+        fc.columns = range(self.neighoborhood_nums)
+        melt = pd.melt(fc.reset_index(), id_vars=[self.Patient, self.Group])
+        melt = melt.rename(columns={'variable': 'neighborhood', 'value': 'frequency of neighborhood'})
+        f, ax = plt.subplots(dpi=200, figsize=(10, 5))
+        sns.stripplot(data=melt, hue=self.Group, dodge=True, alpha=.2, x='neighborhood',
+                      y='frequency of neighborhood')
+        sns.pointplot(data=melt, scatter_kws={'marker': 'd'}, hue=self.Group, dodge=.5, join=False,
+                      x='neighborhood', y='frequency of neighborhood')
+        handles, labels = ax.get_legend_handles_labels()
+        ax.legend(handles[:2], labels[:2], title=self.Group, handletextpad=0, columnspacing=1, loc="upper right",
+                  ncol=3, frameon=True)
+        plt.savefig('GroupDiffWindow' + self.neighborhood_name + '.png')
+
+        f = open('GroupStatWindow' + self.neighborhood_name + '.txt', 'w')
+        for i in range(self.neighoborhood_nums):
+            n2 = melt[melt['neighborhood'] == i]
+            f.write(str(i) + ' ' + str(ttest_ind(n2[n2[self.Group] == groupslist[0]]['frequency of neighborhood'],n2[n2[self.Group] == groupslist[1]]['frequency of neighborhood'])[1]) + '\n')
+        f.close()
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Train and Evaluate Harmony on your dataset')
     parser.add_argument('-file', '--file-name', type=str, default='data.csv', help='The name of your csv file with filepath')
-    parser.add_argument('-s', '--spot-column', type=str, default='Sample Name', help='The column name in your csv file listing the spot IDs/Names')
+    parser.add_argument('-scol', '--spot-column', type=str, default='Sample Name', help='The column name in your csv file listing the spot IDs/Names')
+    parser.add_argument('-gcol', '--group-column', type=str, default='Patient Group', help='The column name in your csv file listing the patient groups (optional)')
+    parser.add_argument('-pacol', '--patient-column', type=str, default='Patient', help='The column name in your csv file listing unique patient identifiers (optional)')
     parser.add_argument('-x', '--x-pos', type=str, default='Cell X Position', help='The column name in your csv file listing the cell X coordinates')
     parser.add_argument('-y', '--y-pos', type=str, default='Cell Y Position', help= 'The column name in your csv file listing the cell y coordinates')
-    parser.add_argument('-ph', '--type-column', type=str, default='Phenotype', help= 'The number of neighborhoods you want to construct')
+    parser.add_argument('-tcol', '--type-column', type=str, default='Phenotype', help= 'The number of neighborhoods you want to construct')
     parser.add_argument('-m', '--method', choices=['Distancecutoff','Windowcutoff'], type=str, default='Distancecutoff', help = 'The method you want to use to create neighborhoods (Distancecutoff/Windowcutoff)')
     parser.add_argument('-mp', '--method-param', type=int, default=50, help='If you are using Distance Cut off, then input the distance, otherwise, input number of neighboring cells as input')
     parser.add_argument('-n', '--num-nei', type=int, default='7', help='Number of Neighborhoods')
+    parser.add_argument('--get-strip-plots', action='store_true', help='Generate Groupwise Strip Plots with Neighborhoods')
     args = parser.parse_args()
     file_name = args.file_name
-    patient_col = args.patient_column
+    group_col = args.group_column
     spot_col = args.spot_column
+    sample_col = args.patient_col
     x_pos = args.x_pos
     y_pos = args.y_pos
     num_of_neighbors = args.num_nei
     type_col = args.type_column
     method = args.method
     method_param = args.method_param
+    get_strip_plots= False
+    if args.get_strip_plots:
+        get_strip_plots = True
+
     cn = CellNeighborhood(file_name, Xpos=x_pos,YPos=y_pos, ROI=spot_col, CellType=type_col)
     cn.set_method(method)  # There are two methods, one is Windowcutoff, another is Distancecutoff
     cn.set_method_param(method_param)  # Window Size for Window Method, Distance cut off for distance method
     cn.set_num_of_neighborhoods(num_of_neighbors)  # Set the number of neighborhoods you want to get
     cn.save_clustermap()  # Saves the clustermap of celltype distribution across neighborhoods
     cn.save_neighborhoods()
+    if get_strip_plots is True:
+        cn.set_group_plot_colums(patient=sample_col, group=group_col)
+        cn.get_Groupwise_Stripplot()
