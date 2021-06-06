@@ -28,3 +28,18 @@ You can provide all the other necessary arguments in the command too. If you do 
 ```
 python Neighborhood_Identification.py --help 
 ```
+
+This command will generate the neighborhood vs cell type clustermap and save the neighborhood information in `<filename>_with_Neighborhood.csv`. 
+## Constructing Neighborhood-Neighborhood Network 
+
+After identifying the neighborhood, you can use the saved neighborhood file as input to create the cell-cell network graphs across neighborhoods over different patient groups using the following command.
+
+```
+python Neighborhood_Network.py --file-name <filename> 
+```
+You can provide all the other necessary arguments in the command too. If you do not provide them, the default values for the arguments will be assumed. You can know about all the arguments by the following command.
+
+```
+python Neighborhood_Network.py --help 
+```
+
